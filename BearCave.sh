@@ -2,7 +2,8 @@
 # BearCave - easy to use terminal based password manager With MFA, logging and encryption
 # For Linux. Dependency: openssl and oathtool (for TOTP-MFA).
 # Made by: Frederik Flakne, 2025
-# This is version 1.0
+# This is version 1.1
+# GitHub: https://github.com/Boeddelen/BearCave
 
 trap 'error "Unexpected error at line $LINENO."' ERR
 
@@ -127,12 +128,12 @@ banner() {
   echo
   echo "${BOLD}${CYAN}=== BearCave ===${RESET}"
   echo "${BLUE}Your local secure and encrypted terminal vault${RESET}"
-  echo "${BOLD}${RED}     v1.0${RESET}"
+  echo "${BOLD}${RED}v1.1${RESET}"
   echo
 }
 
 read_hidden() {
-  # Read hidden input (passord/koder)
+  # Read hidden input (passord/codes)
   local prompt="$1"
   local varname="$2"
   local input
@@ -207,7 +208,7 @@ create_user() {
   while true; do
     read_hidden "Create main password: " pwd1
     validate_password "${pwd1}" || { continue; }
-    read_hidden "Do it again. Repeat main password: " pwd2
+    read_hidden "Repeat the main password: " pwd2
     if [ "${pwd1}" != "${pwd2}" ]; then
       echo "${YELLOW}It has to be the exact same password to make this work. You already knew this.${RESET}"
       continue
@@ -248,7 +249,7 @@ auth_user() {
 
   # Verify and decrypt using keycheck.enc
   if ! dec_file_to_stdout "${pwd}" "${keycheck}" >/dev/null 2>&1; then
-    echo "${RED}Wrong password sheep! '-_('-')_-'.${RESET}"
+    echo "${RED}Wrong password sheep! -_('-')_-.${RESET}"
     info "Login failed for ${username}"
     return 2
   fi
@@ -299,7 +300,7 @@ setup_mfa() {
   local pwd
   read_hidden "Main password for ${username}: " pwd
   if ! dec_file_to_stdout "${pwd}" "${dir}/keycheck.enc" >/dev/null 2>&1; then
-    echo "${RED}Wrong password sheep! '-_('-')_-'.${RESET}"
+    echo "${RED}Wrong password sheep! -_('-')_-.${RESET}"
     return 2
   fi
 
@@ -340,7 +341,7 @@ disable_mfa() {
   local pwd
   read_hidden "Main password for ${username}: " pwd
   if ! dec_file_to_stdout "${pwd}" "${dir}/keycheck.enc" >/dev/null 2>&1; then
-    echo "${RED}Wrong password sheep! '-_('-')_-'.${RESET}"
+    echo "${RED}Wrong password sheep! -_('-')_-.${RESET}"
     return 2
   fi
 
@@ -383,10 +384,83 @@ vault_add_entry() {
     return 1
   fi
 
+
+vault_edit_entry() {
+  local user="$1" pass="$2"
+  local tmp="${TMP_DIR}/vault.$$"
+  if ! vault_decrypt_to "${user}" "${pass}" "${tmp}"; then
+    echo "${RED}The vault is too strong! The doors simply would not barge!.${RESET}"
+    return 1
+  fi
+
+  # Parse all entries into an array (skip empty lines)
+  mapfile -t entries < <(
+    sed -e 's/^\[\(.*\)\]$/\1/' -e 's/},{/}\
+{/g' "${tmp}" | grep -v '^[[:space:]]*$'
+  )
+
+  if [ "${#entries[@]}" -eq 0 ]; then
+    echo "${YELLOW}No entries to edit.${RESET}"
+    secure_rm "${tmp}"
+    return
+  fi
+
+  echo "${CYAN}Select honeycomb to edit:${RESET}"
+  local i=1
+  for line in "${entries[@]}"; do
+    site=$(echo "$line" | grep -o '"site":"[^"]*"' | sed 's/"site":"//;s/"$//')
+    printf " %2d) %s\n" "$i" "$site"
+    ((i++))
+  done
+
+  read -r -p "Enter number to edit, or [enter] to cancel: " sel
+  if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#entries[@]}" ]; then
+    local idx=$((sel-1))
+    IFS='|' read -r site uname upass <<< "$(echo "${entries[$idx]}" | \
+      awk -F'"site":"|","username":"|","password":"|"' '{print $2 "|" $4 "|" $6}')"
+
+    # Prompt for new values, default to current
+    read -r -p "Site [${site}]: " new_site
+    read -r -p "Username [${uname}]: " new_uname
+    read_hidden "Password [hidden, leave blank to keep]: " new_upass
+
+    # Use old values if blank
+    [ -z "$new_site" ] && new_site="$site"
+    [ -z "$new_uname" ] && new_uname="$uname"
+    [ -z "$new_upass" ] && new_upass="$upass"
+
+    # Escape quotes
+    new_site=$(printf '%s' "${new_site}" | sed 's/"/\\"/g')
+    new_uname=$(printf '%s' "${new_uname}" | sed 's/"/\\"/g')
+    new_upass=$(printf '%s' "${new_upass}" | sed 's/"/\\"/g')
+
+    # Update entry
+    entries[$idx]="{\"site\":\"${new_site}\",\"username\":\"${new_uname}\",\"password\":\"${new_upass}\"}"
+
+    # Write back to file
+    printf '[%s]\n' "$(IFS=,; echo "${entries[*]}")" > "${tmp}.new"
+    vault_encrypt_from "${user}" "${pass}" "${tmp}.new"
+    secure_rm "${tmp}"; secure_rm "${tmp}.new"
+    echo "${GREEN}Honeycomb updated.${RESET}"
+    info "Honeycomb edited for ${user}"
+  else
+    echo "${YELLOW}Canceled.${RESET}"
+    secure_rm "${tmp}"
+    return
+  fi
+}
+
   local site uname upass
   read -r -p "Service/Side: " site
   read -r -p "Username: " uname
   read_hidden "Password (for the service): " upass
+
+    # Prevent empty entries
+  if [ -z "$site" ] || [ -z "$uname" ] || [ -z "$upass" ]; then
+    echo "${YELLOW}None of the fields can be empty. Entry not added.${RESET}"
+    secure_rm "${tmp}"
+    return 1
+  fi
 
   # Do not log content
   info "Adding content for user ${user}"
@@ -411,7 +485,7 @@ vault_add_entry() {
   vault_encrypt_from "${user}" "${pass}" "${tmp}.new"
   secure_rm "${tmp}"; secure_rm "${tmp}.new"
 
-  echo "${GREEN}Value added. Well done!.${RESET}"
+  echo "${GREEN}Value added. Well done!${RESET}"
 }
 
 vault_list_sites() {
@@ -421,7 +495,7 @@ vault_list_sites() {
     echo "${RED}The vault is too strong! The doors simply would not barge!.${RESET}"
     return 1
   fi
-  echo "${CYAN}Services in the vault:${RESET}"
+  echo "${CYAN}Honeycombs in the vault:${RESET}"
   # Get "site"-field values
   grep -o '"site":"[^"]*"' "${tmp}" | sed 's/"site":"//;s/"$//' | nl -w2 -s'. '
   secure_rm "${tmp}"
@@ -434,22 +508,53 @@ vault_show_entry() {
     echo "${RED}The vault is too strong! The doors simply would not barge!.${RESET}"
     return 1
   fi
-  read -r -p "Search for service name, or hit [enter] to list all: " q
-  echo "${CYAN}Hit:${RESET}"
-  awk -v q="$q" '
-    BEGIN{ RS="\\},\\{"; FS="," }
-    {
-      s=""; u=""; p="";
-      for(i=1;i<=NF;i++){
-        if($i ~ /"site":/){ sub(/.*"site":"/, "", $i); sub(/".*/, "", $i); s=$i }
-        if($i ~ /"username":/){ sub(/.*"username":"/, "", $i); sub(/".*/, "", $i); u=$i }
-        if($i ~ /"password":/){ sub(/.*"password":"/, "", $i); sub(/".*/, "", $i); p=$i }
-      }
-      if(index(tolower(s), tolower(q))>0){
-        printf(" - %s | %s | %s\n", s, u, p)
-      }
-    }
-  ' "${tmp}"
+  
+  read -r -p "Search for honeycombs name, or hit [enter] to list all: " q
+  echo "${CYAN}Honeycomb(s):${RESET}"
+
+  # Parse all entries into an array
+  mapfile -t entries < <(sed -e 's/^\[\(.*\)\]$/\1/' -e 's/},{/}\
+{/g' "${tmp}")
+
+  local filtered=()
+  local i=1
+  for line in "${entries[@]}"; do
+    site=$(echo "$line" | grep -o '"site":"[^"]*"' | sed 's/"site":"//;s/"$//')
+    uname=$(echo "$line" | grep -o '"username":"[^"]*"' | sed 's/"username":"//;s/"$//')
+    upass=$(echo "$line" | grep -o '"password":"[^"]*"' | sed 's/"password":"//;s/"$//')
+    if [ -z "$q" ] || [[ "${site,,}" == "${q,,}" ]] || echo "$site" | grep -i -q "$q"; then
+      printf " %2d) %s\n" "$i" "$site"
+      filtered+=("$site|$uname|$upass")
+      ((i++))
+    fi
+  done
+
+  if [ "${#filtered[@]}" -eq 0 ]; then
+    echo "${YELLOW}No entries found.${RESET}"
+    secure_rm "${tmp}"
+    return
+  fi
+
+  # If more than one entry, let user pick
+  if [ "${#filtered[@]}" -gt 1 ]; then
+    read -r -p "Enter number to show details, or [enter] to cancel: " sel
+    if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#filtered[@]}" ]; then
+      IFS='|' read -r site uname upass <<< "${filtered[$((sel-1))]}"
+      echo "${CYAN}Details:${RESET}"
+      echo "  Site:     $site"
+      echo "  Username: $uname"
+      echo "  Password: $upass"
+    else
+      echo "${YELLOW}Canceled.${RESET}"
+    fi
+  elif [ "${#filtered[@]}" -eq 1 ]; then
+    IFS='|' read -r site uname upass <<< "${filtered[0]}"
+    echo "${CYAN}Details:${RESET}"
+    echo "  Site:     $site"
+    echo "  Username: $uname"
+    echo "  Password: $upass"
+  fi
+
   secure_rm "${tmp}"
 }
 
@@ -459,7 +564,7 @@ vault_change_master_password() {
   local oldpwd
   read_hidden "Existing main password: " oldpwd
   if ! dec_file_to_stdout "${oldpwd}" "${dir}/keycheck.enc" >/dev/null 2>&1; then
-    echo "${RED}Wrong password sheep! '-_('-')_-'.${RESET}"
+    echo "${RED}Wrong password sheep! -_('-')_-.${RESET}"
     return 1
   fi
 
@@ -533,22 +638,24 @@ user_session() {
   while true; do
     echo
     echo "${BOLD}${MAGENTA}User: ${user}${RESET}"
-    echo "  1) Add listing"
+    echo "  1) Add honeycomb"
     echo "  2) List services"
-    echo "  3) Show list(ings)"
-    echo "  4) Change main password"
-    echo "  5) Activate MFA"
-    echo "  6) Deactivate MFA"
-    echo "  7) Log out"
+    echo "  3) Show honeycomb(s)"
+    echo "  4) Edit honeycomb"
+    echo "  5) Change main password"
+    echo "  6) Activate MFA"
+    echo "  7) Deactivate MFA"
+    echo "  8) Log out"
     read -r -p "Choose: " c
     case "$c" in
       1) vault_add_entry "${user}" "${pass}" ;;
       2) vault_list_sites "${user}" "${pass}" ;;
       3) vault_show_entry "${user}" "${pass}" ;;
-      4) vault_change_master_password "${user}" ;;
-      5) setup_mfa "${user}" ;;
-      6) disable_mfa "${user}" ;;
-      7) echo "${GREEN}Logged out.${RESET}"; break ;;
+      4) vault_edit_entry "${user}" "${pass}" ;;
+      5) vault_change_master_password "${user}" ;;
+      6) setup_mfa "${user}" ;;
+      7) disable_mfa "${user}" ;;
+      8) echo "${GREEN}Logged out.${RESET}"; break ;;
       *) echo "${YELLOW}Invalid choice.${RESET}" ;;
     esac
   done
