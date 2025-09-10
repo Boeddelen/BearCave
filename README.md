@@ -1,6 +1,6 @@
-# BearCave
+# bearcave
 
-BearCave is a simple, terminal-based password manager with MFA, logging, and encryption. It is designed for Linux and uses OpenSSL for encryption and oathtool for TOTP-based multi-factor authentication.
+bearcave is a simple, terminal-based password manager with MFA, logging, and encryption. It is designed for Linux and uses OpenSSL for encryption and oathtool for TOTP-based multi-factor authentication.
 
 ## Features
 
@@ -21,7 +21,7 @@ BearCave is a simple, terminal-based password manager with MFA, logging, and enc
 ## Usage
 
 1. Clone the repository.
-2. Run BearCave in your terminal:
+2. Run bearcave in your terminal:
 3. Follow the interactive menu to create users, manage vaults, and enable MFA with any authenticator you want.
 
 ## License
