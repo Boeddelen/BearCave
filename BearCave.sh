@@ -3,7 +3,7 @@
 # For Linux. Dependency: openssl and oathtool (for TOTP-MFA).
 # Made by: Frederik Flakne, 2025
 # This is version 1.1
-# GitHub: https://github.com/Boeddelen/BearCave
+# GitHub: https://github.com/Boeddelen/bearcave
 
 trap 'error "Unexpected error at line $LINENO."' ERR
 
@@ -11,7 +11,7 @@ trap 'error "Unexpected error at line $LINENO."' ERR
 # Config og globale variables
 # -----------------------------
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="${SCRIPT_DIR}/BearCave"
+BASE_DIR="${SCRIPT_DIR}/bearcave"
 LOG_DIR="${BASE_DIR}/logs"
 TMP_DIR="${BASE_DIR}/tmp"
 USERS_DIR="${BASE_DIR}/users"
@@ -126,7 +126,8 @@ fi
 # -----------------------------
 banner() {
   echo
-  echo "${BOLD}${CYAN}=== BearCave ===${RESET}"
+  echo "${BOLD}${CYAN}============ bearcave ============${RESET}"
+  echo "${BOLD}${YELLOW}Fill your cave with honeycombs${RESET}"
   echo "${BLUE}Your local secure and encrypted terminal vault${RESET}"
   echo "${BOLD}${RED}v1.1${RESET}"
   echo
@@ -450,6 +451,59 @@ vault_edit_entry() {
   fi
 }
 
+vault_delete_entry() {
+  local user="$1" pass="$2"
+  local tmp="${TMP_DIR}/vault.$$"
+  if ! vault_decrypt_to "${user}" "${pass}" "${tmp}"; then
+    echo "${RED}The vault is too strong! The doors simply would not barge!.${RESET}"
+    return 1
+  fi
+
+  # Parse all entries into an array (skip empty lines)
+  mapfile -t entries < <(
+    sed -e 's/^\[\(.*\)\]$/\1/' -e 's/},{/}\
+{/g' "${tmp}" | grep -v '^[[:space:]]*$'
+  )
+
+  if [ "${#entries[@]}" -eq 0 ]; then
+    echo "${YELLOW}No entries to delete.${RESET}"
+    secure_rm "${tmp}"
+    return
+  fi
+
+  echo "${CYAN}Select honeycomb to delete:${RESET}"
+  local i=1
+  for line in "${entries[@]}"; do
+    site=$(echo "$line" | grep -o '"site":"[^"]*"' | sed 's/"site":"//;s/"$//')
+    printf " %2d) %s\n" "$i" "$site"
+    ((i++))
+  done
+
+  read -r -p "Enter number to delete, or [enter] to cancel: " sel
+  if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#entries[@]}" ]; then
+    local idx=$((sel-1))
+    read -r -p "Are you sure you want to delete this honeycomb? (y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+      unset 'entries[idx]'
+      # Write back to file
+      # Remove empty lines, join with commas, wrap in []
+      printf '[%s]\n' "$(IFS=,; echo "${entries[*]}")" > "${tmp}.new"
+      vault_encrypt_from "${user}" "${pass}" "${tmp}.new"
+      secure_rm "${tmp}"; secure_rm "${tmp}.new"
+      echo "${GREEN}Honeycomb deleted.${RESET}"
+      info "Honeycomb deleted for ${user}"
+    else
+      echo "${YELLOW}Canceled.${RESET}"
+      secure_rm "${tmp}"
+      return
+    fi
+  else
+    echo "${YELLOW}Canceled.${RESET}"
+    secure_rm "${tmp}"
+    return
+  fi
+}
+
   local site uname upass
   read -r -p "Service/Side: " site
   read -r -p "Username: " uname
@@ -639,23 +693,25 @@ user_session() {
     echo
     echo "${BOLD}${MAGENTA}User: ${user}${RESET}"
     echo "  1) Add honeycomb"
-    echo "  2) List services"
+    echo "  2) List honeycomb(s)"
     echo "  3) Show honeycomb(s)"
     echo "  4) Edit honeycomb"
-    echo "  5) Change main password"
-    echo "  6) Activate MFA"
-    echo "  7) Deactivate MFA"
-    echo "  8) Log out"
+    echo "  5) Delete honeycomb"
+    echo "  6) Change main password"
+    echo "  7) Activate MFA"
+    echo "  8) Deactivate MFA"
+    echo "  9) Log out"
     read -r -p "Choose: " c
     case "$c" in
       1) vault_add_entry "${user}" "${pass}" ;;
       2) vault_list_sites "${user}" "${pass}" ;;
       3) vault_show_entry "${user}" "${pass}" ;;
       4) vault_edit_entry "${user}" "${pass}" ;;
-      5) vault_change_master_password "${user}" ;;
-      6) setup_mfa "${user}" ;;
-      7) disable_mfa "${user}" ;;
-      8) echo "${GREEN}Logged out.${RESET}"; break ;;
+      5) vault_delete_entry "${user}" "${pass}" ;;
+      6) vault_change_master_password "${user}" ;;
+      7) setup_mfa "${user}" ;;
+      8) disable_mfa "${user}" ;;
+      9) echo "${GREEN}Logged out.${RESET}"; break ;;
       *) echo "${YELLOW}Invalid choice.${RESET}" ;;
     esac
   done
@@ -696,7 +752,7 @@ main_menu() {
         delete_user "${username}"
         ;;
       6)
-        echo "${GREEN}Thank you for enjoying the peaceful tranquility of BearCave.${RESET}"
+        echo "${GREEN}Thank you for enjoying the peaceful tranquility of bearcave.${RESET}"
         break
         ;;
       *)
@@ -711,7 +767,7 @@ main_menu() {
 # -----------------------------
 init_dirs
 check_deps
-info "BearCave opened."
+info "bearcave opened."
 main_menu
-info "BearCave shut."
+info "bearcave shut."
 umask "${UMASK_PREV}"
